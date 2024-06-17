@@ -1,0 +1,11 @@
+[package]
+name = "crt-vss-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bulletproofs = { path = "../bulletproofs", features = ["yoloproofs"] }
+curve25519-dalek = { version = "4.1.1", features = ["digest", "group", "rand_core", "serde"] }
+rand_core = { version = "0.6", default-features = false, features = ["alloc"] }
+rand = { version = "0.8", default-features = false }
+merlin = { version = "3", default-features = false }
