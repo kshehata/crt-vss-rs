@@ -223,27 +223,121 @@ impl DisjunctionOfRanges {
     }
 }
 
+// Proof that v = s mod p
+// Where s is some value mod p0
+struct ProofOfMod(R1CSProof);
+
+impl ProofOfMod {
+    fn gadget<CS: RandomizableConstraintSystem>(
+        cs: &mut CS,
+        v: Variable,
+        v_val: Option<u64>,
+        s: Variable,
+        s_val: Option<u64>,
+        p: u64,
+        p0: u64,
+        k_val: Option<u64>,
+    ) -> Result<(), R1CSError> {
+        // p0 = q * p + t
+        let (q, t) = (p0 / p, p0 % p);
+        let n1: usize = (p.ilog2() + 1).try_into().unwrap();
+        let n2: usize = (q.ilog2() + 1).try_into().unwrap();
+        let k = cs.allocate(k_val.map(|x| Scalar::from(x))).unwrap();
+
+        // Fundamental constraint for proof of mod
+        cs.constrain(v + k * p - s);
+
+        add_range_constraints(cs, v.into(), v_val, n1)?;
+        add_range_constraints(cs, k.into(), k_val, n2)?;
+        add_range_constraints(cs, Scalar::from(p - 1) - v, v_val.map(|x| p - x - 1), n1)?;
+        add_range_constraints(cs, Scalar::from(q) - k, k_val.map(|x| q - x), n2)?;
+        add_range_disjunction(cs,
+            Scalar::from(t - 1) - v,
+            Scalar::from(q - 1) - k,
+            v_val.map(|x| t - 1 - x),
+            k_val.map(|x| q - 1 - x),
+            n1, n2)?;
+
+        Ok(())
+    }
+}
+impl ProofOfMod {
+    pub fn prove<'a, 'b>(
+        pc_gens: &'b PedersenGens,
+        bp_gens: &'b BulletproofGens,
+        transcript: &'a mut Transcript,
+        v: u64,
+        s: u64,
+        k: u64,
+        p: u64,
+        p0: u64,
+    ) -> Result<(ProofOfMod, CompressedRistretto, CompressedRistretto), R1CSError> {
+        transcript.append_message(b"dom-sep", b"ProofOfMod");
+
+        let mut prover = Prover::new(&pc_gens, transcript);
+
+        // Should probably accept these as inputs, but for now generate as needed
+        let mut blinding_rng = rand::thread_rng();
+
+        let (v_com, v_var)
+            = prover.commit(Scalar::from(v), Scalar::random(&mut blinding_rng));
+        let (s_com, s_var)
+            = prover.commit(Scalar::from(s), Scalar::random(&mut blinding_rng));
+
+        ProofOfMod::gadget(&mut prover, v_var, Some(v), s_var, Some(s), p, p0, Some(k))?;
+
+        let proof = prover.prove(&bp_gens)?;
+
+        Ok((ProofOfMod(proof), v_com, s_com))
+    }
+}
+
+impl ProofOfMod {
+    pub fn verify<'a, 'b>(
+        &self,
+        pc_gens: &'b PedersenGens,
+        bp_gens: &'b BulletproofGens,
+        transcript: &'a mut Transcript,
+        v_com: CompressedRistretto,
+        s_com: CompressedRistretto,
+        p: u64,
+        p0: u64,
+    ) -> Result<(), R1CSError> {
+        transcript.append_message(b"dom-sep", b"ProofOfMod");
+
+        let mut verifier = Verifier::new(transcript);
+
+        let v_var = verifier.commit(v_com);
+        let s_var = verifier.commit(s_com);
+
+        ProofOfMod::gadget(&mut verifier, v_var, None, s_var, None, p, p0, None)?;
+
+        verifier.verify(&self.0, pc_gens, bp_gens)
+    }
+}
 fn main() {
     println!("Hello, world!");
-    let (v1, n1) = (128u64, 8usize);
-    let (v2, n2) = (42u64, 5usize);
+    let (p, p0) = (19u64, 977u64);
+    let s = 555u64;
+    let (v, k) = (s % p, s / p);
+    // let (v, k) = (5u64, 28u64);
 
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
-        (2 * (n1 + n2 + 1)).next_power_of_two(),
+        (2 * (129usize)).next_power_of_two(),
         1);
     
-    println!("Creating range disjunction proof for {} in {} bits and {} in {} bits", v1, n1, v2, n2);
-    let (proof, v1_com, v2_com) = {
-        let mut prover_transcript = Transcript::new(b"RangeProofExample");
-        DisjunctionOfRanges::prove(&pc_gens, &bp_gens, &mut prover_transcript, v1, v2, n1, n2).unwrap()
+    println!("Creating a proof of mod for {} (in {}) = {} + {} * {}", s, p0, v, k, p);
+    let (proof, v_com, s_com) = {
+        let mut prover_transcript = Transcript::new(b"ProofOfModExample");
+        ProofOfMod::prove(&pc_gens, &bp_gens, &mut prover_transcript, v, s, k, p, p0).unwrap()
     };
 
     println!("Verifying proof for commitment");
-    let mut verifier_transcript = Transcript::new(b"RangeProofExample");
+    let mut verifier_transcript = Transcript::new(b"ProofOfModExample");
 
     if let Err(e) = proof.verify(
-        &pc_gens, &bp_gens, &mut verifier_transcript, v1_com, v2_com, n1, n2) {
+        &pc_gens, &bp_gens, &mut verifier_transcript, v_com, s_com, p, p0) {
         println!("Failed to verify proof: {:?}", e)
     }
     else {
