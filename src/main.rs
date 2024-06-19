@@ -1,10 +1,7 @@
-use std::array::from_fn;
-
 use bulletproofs::r1cs::*;
-use curve25519_dalek::{digest::typenum::bit, ristretto::CompressedRistretto, scalar::Scalar};
+use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use merlin::Transcript;
-use rand::thread_rng;
 
 extern crate bulletproofs;
 
@@ -98,79 +95,74 @@ impl RangeProof {
     }
 }
 
+pub fn add_bit_constraints<CS: RandomizedConstraintSystem>(
+    cs: &mut CS,
+    mut v: LinearCombination,
+    v_val: Option<u64>,
+    n: usize,
+    z: Scalar,
+) -> Result<LinearCombination, R1CSError> {
+    let v_in_range = v_val.map(|x| x < (1 << n)).unwrap_or(false);
+    let mut pow_2 = Scalar::ONE;
+    let mut pow_z = Scalar::ONE;
+    let mut cp = LinearCombination::from(Scalar::ZERO);
+    for i in 0..n {
+        // Add constraints for bit i
+        // Is there a better way to do this?
+        // Basically, if value is in range, then use the bit decompoisition.
+        // Otherwise, set the lowest "bit" wire to the value, complement to zero,
+        // and all other "bit" wires to 0 and complement to 1.
+        let (a, b, o) = cs.allocate_multiplier(
+            v_val.map(|x| {
+                if v_in_range {
+                    let bit: u64 = (x >> i) & 1;
+                    (bit.into(), (1 - bit).into())
+                } else if i == 0 {
+                    (x.into(), Scalar::ZERO.into())
+                } else {
+                    (Scalar::ZERO.into(), Scalar::ONE.into())
+                }
+            }))?;
+
+        // Constrain a * b = 0 so that one of a or b must be zero.
+        cs.constrain(o.into());
+
+        // add polynomial constraints for disjunction
+        cp = cp + (a + b - Scalar::ONE) * pow_z;
+        pow_z = pow_z * z;
+        
+        // Update linear combination v to remove the bit we just constrained.
+        v = v - a * pow_2;
+        pow_2 = pow_2 + pow_2;
+    }
+
+    // Finally enforce that after we've removed all of the bits, the value is zero.
+    cs.constrain(v);
+
+    Ok(cp)
+}
+
 // Add constraints for a disjuction of ranges.
 // i.e. either v1 is in [0, 2^n) or v2 is in [0, 2^n).
 pub fn add_range_disjunction<CS: RandomizableConstraintSystem>(
     cs: &mut CS,
     // Variable of values to be constrained
-    mut v1: LinearCombination,
-    mut v2: LinearCombination,
+    v1: LinearCombination,
+    v2: LinearCombination,
     // If set, what to assign the wires to.
     v1_val: Option<u64>,
     v2_val: Option<u64>,
     // Bit size of values
-    n: usize,
+    n1: usize,
+    n2: usize,
 ) -> Result<(), R1CSError> {
     cs.specify_randomized_constraints(move |cs| {
         let z = cs.challenge_scalar(b"disjunction challenge");
-        let mut pow_2 = Scalar::ONE;
-        let mut pow_z = Scalar::ONE;
-        let mut c1 = LinearCombination::from(Scalar::ZERO);
-        let mut c2 = LinearCombination::from(Scalar::ZERO);
-        // Is there a better way to do this?
-        // Basically, if value is in range, then use the bit decompoisition.
-        // Otherwise, set the lowest "bit" wire to the value, complement to zero,
-        // and all other "bit" wires to 0 and complement to 1.
-        let v1_in_range = v1_val.map(|x| x < (1 << n)).unwrap_or(false);
-        let v2_in_range = v2_val.map(|x| x < (1 << n)).unwrap_or(false);
-        for i in 0..n {
-            // Add constraints for bit i
-            let (a1, b1, o1) = cs.allocate_multiplier(
-                v1_val.map(|x| {
-                    if v1_in_range {
-                        let bit: u64 = (x >> i) & 1;
-                        (bit.into(), (1 - bit).into())
-                    } else if i == 0 {
-                        (x.into(), Scalar::ZERO.into())
-                    } else {
-                        (Scalar::ZERO.into(), Scalar::ONE.into())
-                    }
-                }))?;
-            let (a2, b2, o2) = cs.allocate_multiplier(
-                v2_val.map(|x| {
-                    if v2_in_range {
-                        let bit: u64 = (x >> i) & 1;
-                        (bit.into(), (1 - bit).into())
-                    } else if i == 0 {
-                        (x.into(), Scalar::ZERO.into())
-                    } else {
-                        (Scalar::ZERO.into(), Scalar::ONE.into())
-                    }
-                }))?;
-
-            // Constrain a * b = 0 so that one of a or b must be zero.
-            cs.constrain(o1.into());
-            cs.constrain(o2.into());
-
-            // add polynomial constraints for disjunction
-            c1 = c1 + (a1 + b1 - Scalar::ONE) * pow_z;
-            c2 = c2 + (a2 + b2 - Scalar::ONE) * pow_z;
-            pow_z = pow_z * z;
-
-            // Update linear combination v to remove the bit we just constrained.
-            v1 = v1 - a1 * pow_2;
-            v2 = v2 - a2 * pow_2;
-            pow_2 = pow_2 + pow_2;
-        }
-
-        // Finally enforce that after we've removed all of the bits, the value is zero.
-        cs.constrain(v1);
-        cs.constrain(v2);
-
+        let c1 = add_bit_constraints(cs, v1, v1_val, n1, z)?;
+        let c2 = add_bit_constraints(cs, v2, v2_val, n2, z)?;
         // Enforce the disjunction
         let (_, _, c_out) = cs.multiply(c1, c2);
         cs.constrain(c_out.into());
-
         Ok(())
     })
 }
@@ -184,7 +176,8 @@ impl DisjunctionOfRanges {
         transcript: &'a mut Transcript,
         v1: u64,
         v2: u64,
-        n: usize,
+        n1: usize,
+        n2: usize,
     ) -> Result<(DisjunctionOfRanges, CompressedRistretto, CompressedRistretto), R1CSError> {
         transcript.append_message(b"dom-sep", b"DisjunctionOfRanges");
 
@@ -198,7 +191,7 @@ impl DisjunctionOfRanges {
         let (v2_com, v2_var)
             = prover.commit(Scalar::from(v2), Scalar::random(&mut blinding_rng));
 
-        assert!(add_range_disjunction(&mut prover, v1_var.into(), v2_var.into(), Some(v1), Some(v2), n).is_ok());
+        assert!(add_range_disjunction(&mut prover, v1_var.into(), v2_var.into(), Some(v1), Some(v2), n1, n2).is_ok());
 
         let proof = prover.prove(&bp_gens)?;
 
@@ -214,7 +207,8 @@ impl DisjunctionOfRanges {
         transcript: &'a mut Transcript,
         v1_com: CompressedRistretto,
         v2_com: CompressedRistretto,
-        n: usize,
+        n1: usize,
+        n2: usize,
     ) -> Result<(), R1CSError> {
         transcript.append_message(b"dom-sep", b"DisjunctionOfRanges");
 
@@ -223,7 +217,7 @@ impl DisjunctionOfRanges {
         let v1_var = verifier.commit(v1_com);
         let v2_var = verifier.commit(v2_com);
 
-        assert!(add_range_disjunction(&mut verifier, v1_var.into(), v2_var.into(), None, None, n).is_ok());
+        assert!(add_range_disjunction(&mut verifier, v1_var.into(), v2_var.into(), None, None, n1, n2).is_ok());
 
         verifier.verify(&self.0, pc_gens, bp_gens)
     }
@@ -231,25 +225,25 @@ impl DisjunctionOfRanges {
 
 fn main() {
     println!("Hello, world!");
-    let n: usize = 7;
-    let (v1, v2) = (128u64, 99u64);
+    let (v1, n1) = (128u64, 8usize);
+    let (v2, n2) = (42u64, 5usize);
 
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
-        (2 * (n+1)).next_power_of_two(),
+        (2 * (n1 + n2 + 1)).next_power_of_two(),
         1);
     
-    println!("Creating range disjunction proof for {} and {} in {} bits", v1, v2, n);
+    println!("Creating range disjunction proof for {} in {} bits and {} in {} bits", v1, n1, v2, n2);
     let (proof, v1_com, v2_com) = {
         let mut prover_transcript = Transcript::new(b"RangeProofExample");
-        DisjunctionOfRanges::prove(&pc_gens, &bp_gens, &mut prover_transcript, v1, v2, n).unwrap()
+        DisjunctionOfRanges::prove(&pc_gens, &bp_gens, &mut prover_transcript, v1, v2, n1, n2).unwrap()
     };
 
     println!("Verifying proof for commitment");
     let mut verifier_transcript = Transcript::new(b"RangeProofExample");
 
     if let Err(e) = proof.verify(
-        &pc_gens, &bp_gens, &mut verifier_transcript, v1_com, v2_com, n) {
+        &pc_gens, &bp_gens, &mut verifier_transcript, v1_com, v2_com, n1, n2) {
         println!("Failed to verify proof: {:?}", e)
     }
     else {
