@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+use num_bigint::BigUint;
 use bulletproofs::r1cs::*;
 use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar};
 use bulletproofs::{BulletproofGens, PedersenGens};
@@ -5,13 +7,26 @@ use merlin::Transcript;
 
 extern crate bulletproofs;
 
+pub fn big_int_to_scalar (bint: BigUint) -> Scalar {
+    let mut bits = bint.to_bytes_le();
+    assert!(bits.len() <= 32);
+    while bits.len() < 32 {
+        bits.push(0);
+    }
+    Scalar::from_bytes_mod_order(bits.try_into().unwrap())
+}
+
+pub fn scalar_to_big_int (scalar: Scalar) -> BigUint {
+    BigUint::from_bytes_le(scalar.as_bytes())
+}
+
 // Add equations to constrain a value to [0, 2^n).
 pub fn add_range_constraints<CS: ConstraintSystem>(
     cs: &mut CS,
     // Variable of value to be constrained
     mut v: LinearCombination,
     // If set, what to assign the wires to.
-    v_val: Option<u64>,
+    v_val: Option<BigUint>,
     // Bit size of value
     n: usize,
 ) -> Result<(), R1CSError> {
@@ -19,9 +34,9 @@ pub fn add_range_constraints<CS: ConstraintSystem>(
     for i in 0..n {
         // Add constraints for bit i
         let (a, b, o) = cs.allocate_multiplier(
-            v_val.map(|x| {
-                let bit: u64 = (x >> i) & 1;
-                (bit.into(), (1 - bit).into())
+            v_val.as_ref().map(|x| {
+                let bit: BigUint = (x >> i) & &BigUint::from(true);
+                (big_int_to_scalar(bit.clone()), big_int_to_scalar(BigUint::from(true) - bit.clone()))
             }))?;
 
         // Constrain a * b = 0 so that one of a or b must be zero.
@@ -49,8 +64,8 @@ impl RangeProof {
         pc_gens: &'b PedersenGens,
         bp_gens: &'b BulletproofGens,
         transcript: &'a mut Transcript,
-        v: u64,
-        u: u64,
+        v: BigUint,
+        u: BigUint,
         n: usize,
     ) -> Result<(RangeProof, CompressedRistretto), R1CSError> {
         transcript.append_message(b"dom-sep", b"RangeProof");
@@ -61,10 +76,10 @@ impl RangeProof {
         let mut blinding_rng = rand::thread_rng();
 
         let (v_com, v_var)
-            = prover.commit(Scalar::from(v), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(v.clone()), Scalar::random(&mut blinding_rng));
 
-        assert!(add_range_constraints(&mut prover, v_var.into(), Some(v), n).is_ok());
-        assert!(add_range_constraints(&mut prover, LinearCombination::from(u) - v_var, Some(u-v), n).is_ok());
+        assert!(add_range_constraints(&mut prover, v_var.into(), Some(v.clone()), n).is_ok());
+        assert!(add_range_constraints(&mut prover, LinearCombination::from(big_int_to_scalar(u.clone())) - v_var, Some(u-v), n).is_ok());
 
         let proof = prover.prove(&bp_gens)?;
 
@@ -79,7 +94,7 @@ impl RangeProof {
         bp_gens: &'b BulletproofGens,
         transcript: &'a mut Transcript,
         v_com: CompressedRistretto,
-        u: u64,
+        u: BigUint,
         n: usize,
     ) -> Result<(), R1CSError> {
         transcript.append_message(b"dom-sep", b"RangeProof");
@@ -89,7 +104,7 @@ impl RangeProof {
         let v_var = verifier.commit(v_com);
 
         assert!(add_range_constraints(&mut verifier, v_var.into(), None, n).is_ok());
-        assert!(add_range_constraints(&mut verifier, LinearCombination::from(u) - v_var, None, n).is_ok());
+        assert!(add_range_constraints(&mut verifier, LinearCombination::from(big_int_to_scalar(u.clone())) - v_var, None, n).is_ok());
 
         verifier.verify(&self.0, pc_gens, bp_gens)
     }
@@ -98,11 +113,11 @@ impl RangeProof {
 pub fn add_bit_constraints<CS: RandomizedConstraintSystem>(
     cs: &mut CS,
     mut v: LinearCombination,
-    v_val: Option<u64>,
+    v_val: Option<BigUint>,
     n: usize,
     z: Scalar,
 ) -> Result<LinearCombination, R1CSError> {
-    let v_in_range = v_val.map(|x| x < (1 << n)).unwrap_or(false);
+    let v_in_range = v_val.clone().map(|x| x < (BigUint::from(true) << n)).unwrap_or(false);
     let mut pow_2 = Scalar::ONE;
     let mut pow_z = Scalar::ONE;
     let mut cp = LinearCombination::from(Scalar::ZERO);
@@ -113,12 +128,12 @@ pub fn add_bit_constraints<CS: RandomizedConstraintSystem>(
         // Otherwise, set the lowest "bit" wire to the value, complement to zero,
         // and all other "bit" wires to 0 and complement to 1.
         let (a, b, o) = cs.allocate_multiplier(
-            v_val.map(|x| {
+            v_val.as_ref().map(|x| {
                 if v_in_range {
-                    let bit: u64 = (x >> i) & 1;
-                    (bit.into(), (1 - bit).into())
+                    let bit: BigUint = (x >> i) & BigUint::from(true);
+                    (big_int_to_scalar(bit.clone()), big_int_to_scalar(BigUint::from(true) - bit.clone()))
                 } else if i == 0 {
-                    (x.into(), Scalar::ZERO.into())
+                    (big_int_to_scalar(x.clone()), Scalar::ZERO.into())
                 } else {
                     (Scalar::ZERO.into(), Scalar::ONE.into())
                 }
@@ -150,8 +165,8 @@ pub fn add_range_disjunction<CS: RandomizableConstraintSystem>(
     v1: LinearCombination,
     v2: LinearCombination,
     // If set, what to assign the wires to.
-    v1_val: Option<u64>,
-    v2_val: Option<u64>,
+    v1_val: Option<BigUint>,
+    v2_val: Option<BigUint>,
     // Bit size of values
     n1: usize,
     n2: usize,
@@ -174,8 +189,8 @@ impl DisjunctionOfRanges {
         pc_gens: &'b PedersenGens,
         bp_gens: &'b BulletproofGens,
         transcript: &'a mut Transcript,
-        v1: u64,
-        v2: u64,
+        v1: BigUint,
+        v2: BigUint,
         n1: usize,
         n2: usize,
     ) -> Result<(DisjunctionOfRanges, CompressedRistretto, CompressedRistretto), R1CSError> {
@@ -187,9 +202,9 @@ impl DisjunctionOfRanges {
         let mut blinding_rng = rand::thread_rng();
 
         let (v1_com, v1_var)
-            = prover.commit(Scalar::from(v1), Scalar::random(&mut blinding_rng));
+            = prover.commit(Scalar::from(big_int_to_scalar(v1.clone())), Scalar::random(&mut blinding_rng));
         let (v2_com, v2_var)
-            = prover.commit(Scalar::from(v2), Scalar::random(&mut blinding_rng));
+            = prover.commit(Scalar::from(big_int_to_scalar(v2.clone())), Scalar::random(&mut blinding_rng));
 
         assert!(add_range_disjunction(&mut prover, v1_var.into(), v2_var.into(), Some(v1), Some(v2), n1, n2).is_ok());
 
@@ -231,31 +246,32 @@ impl ProofOfMod {
     fn gadget<CS: RandomizableConstraintSystem>(
         cs: &mut CS,
         v: Variable,
-        v_val: Option<u64>,
+        v_val: Option<BigUint>,
         s: Variable,
-        s_val: Option<u64>,
-        p: u64,
-        p0: u64,
-        k_val: Option<u64>,
+        s_val: Option<BigUint>,
+        p: BigUint,
+        p0: BigUint,
+        k_val: Option<BigUint>,
     ) -> Result<(), R1CSError> {
         // p0 = q * p + t
-        let (q, t) = (p0 / p, p0 % p);
-        let n1: usize = (p.ilog2() + 1).try_into().unwrap();
-        let n2: usize = (q.ilog2() + 1).try_into().unwrap();
-        let k = cs.allocate(k_val.map(|x| Scalar::from(x))).unwrap();
+        let big_one = BigUint::from(true);
+        let (q, t) = (&p0 / &p, &p0 % &p);
+        let n1: usize = (p.bits()).try_into().unwrap();
+        let n2: usize = (q.bits()).try_into().unwrap();
+        let k = cs.allocate(k_val.as_ref().map(|x| Scalar::from(big_int_to_scalar(x.clone())))).unwrap();
 
         // Fundamental constraint for proof of mod
-        cs.constrain(v + k * p - s);
+        cs.constrain(v + k * big_int_to_scalar(p.clone()) - s);
 
-        add_range_constraints(cs, v.into(), v_val, n1)?;
-        add_range_constraints(cs, k.into(), k_val, n2)?;
-        add_range_constraints(cs, Scalar::from(p - 1) - v, v_val.map(|x| p - x - 1), n1)?;
-        add_range_constraints(cs, Scalar::from(q) - k, k_val.map(|x| q - x), n2)?;
+        add_range_constraints(cs, v.into(), v_val.clone(), n1)?;
+        add_range_constraints(cs, k.into(), k_val.clone(), n2)?;
+        add_range_constraints(cs, big_int_to_scalar(&p - &big_one) - v, v_val.as_ref().map(|x| &p - x - &big_one), n1)?;
+        add_range_constraints(cs, Scalar::from(big_int_to_scalar(q.clone())) - k, k_val.as_ref().map(|x| &q - x), n2)?;
         add_range_disjunction(cs,
-            Scalar::from(t - 1) - v,
-            Scalar::from(q - 1) - k,
-            v_val.map(|x| t - 1 - x),
-            k_val.map(|x| q - 1 - x),
+            big_int_to_scalar(&t - &big_one) - v,
+            big_int_to_scalar(&q - &big_one) - k,
+            v_val.as_ref().map(|x| &t - &big_one - x),
+            k_val.as_ref().map(|x| &q - &big_one - x),
             n1, n2)?;
 
         Ok(())
@@ -266,11 +282,11 @@ impl ProofOfMod {
         pc_gens: &'b PedersenGens,
         bp_gens: &'b BulletproofGens,
         transcript: &'a mut Transcript,
-        v: u64,
-        s: u64,
-        k: u64,
-        p: u64,
-        p0: u64,
+        v: BigUint,
+        s: BigUint,
+        k: BigUint,
+        p: BigUint,
+        p0: BigUint,
     ) -> Result<(ProofOfMod, CompressedRistretto, CompressedRistretto), R1CSError> {
         transcript.append_message(b"dom-sep", b"ProofOfMod");
 
@@ -280,9 +296,9 @@ impl ProofOfMod {
         let mut blinding_rng = rand::thread_rng();
 
         let (v_com, v_var)
-            = prover.commit(Scalar::from(v), Scalar::random(&mut blinding_rng));
+            = prover.commit(Scalar::from(big_int_to_scalar(v.clone())), Scalar::random(&mut blinding_rng));
         let (s_com, s_var)
-            = prover.commit(Scalar::from(s), Scalar::random(&mut blinding_rng));
+            = prover.commit(Scalar::from(big_int_to_scalar(s.clone())), Scalar::random(&mut blinding_rng));
 
         ProofOfMod::gadget(&mut prover, v_var, Some(v), s_var, Some(s), p, p0, Some(k))?;
 
@@ -300,8 +316,8 @@ impl ProofOfMod {
         transcript: &'a mut Transcript,
         v_com: CompressedRistretto,
         s_com: CompressedRistretto,
-        p: u64,
-        p0: u64,
+        p: BigUint,
+        p0: BigUint,
     ) -> Result<(), R1CSError> {
         transcript.append_message(b"dom-sep", b"ProofOfMod");
 
@@ -317,9 +333,14 @@ impl ProofOfMod {
 }
 fn main() {
     println!("Hello, world!");
-    let (p, p0) = (19u64, 977u64);
-    let s = 555u64;
-    let (v, k) = (s % p, s / p);
+    // let bint = BigUint::from_bytes_le(&[6, 1, 4, 5, 6, 7, 8, 2]);
+    // let sca = big_int_to_scalar(bint.clone());
+    // let bint_ret = scalar_to_big_int(sca.clone());
+    // let sca_from_num = Scalar::from(146374710324887814u64);
+    // println!("Finished conversion example. Big int is: {:?}, big int converted back is: {:?}, scalar is: {:?}, scalar from num is: {:?}", bint, bint_ret, sca, sca_from_num);
+    let (p, p0) = (BigUint::from_bytes_le(&[6, 1, 4, 5, 6, 7, 8, 2]), BigUint::from_bytes_le(&[6, 1, 4, 3, 1, 4, 3, 5, 6, 7, 8, 2]));
+    let s = BigUint::from_bytes_le(&[3, 1, 4, 5, 6, 7, 1, 3, 4, 5, 8, 2]);
+    let (v, k) = (&s % &p, &s / &p);
     // let (v, k) = (5u64, 28u64);
 
     let pc_gens = PedersenGens::default();
@@ -327,17 +348,17 @@ fn main() {
         (2 * (129usize)).next_power_of_two(),
         1);
     
-    println!("Creating a proof of mod for {} (in {}) = {} + {} * {}", s, p0, v, k, p);
+    println!("Creating a proof of mod for {} (in {}) = {} + {} * {}", &s, &p0, &v, &k, &p);
     let (proof, v_com, s_com) = {
         let mut prover_transcript = Transcript::new(b"ProofOfModExample");
-        ProofOfMod::prove(&pc_gens, &bp_gens, &mut prover_transcript, v, s, k, p, p0).unwrap()
+        ProofOfMod::prove(&pc_gens, &bp_gens, &mut prover_transcript, v.clone(), s.clone(), k.clone(), p.clone(), p0.clone()).unwrap()
     };
 
     println!("Verifying proof for commitment");
     let mut verifier_transcript = Transcript::new(b"ProofOfModExample");
 
     if let Err(e) = proof.verify(
-        &pc_gens, &bp_gens, &mut verifier_transcript, v_com, s_com, p, p0) {
+        &pc_gens, &bp_gens, &mut verifier_transcript, v_com.clone(), s_com.clone(), p.clone(), p0.clone()) {
         println!("Failed to verify proof: {:?}", e)
     }
     else {
