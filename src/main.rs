@@ -242,6 +242,8 @@ impl DisjunctionOfRanges {
 // Where s is some value mod p0
 struct ProofOfMod(R1CSProof);
 
+struct ExtendedProofOfMod(R1CSProof);
+
 impl ProofOfMod {
     fn gadget<CS: RandomizableConstraintSystem>(
         cs: &mut CS,
@@ -331,6 +333,168 @@ impl ProofOfMod {
         verifier.verify(&self.0, pc_gens, bp_gens)
     }
 }
+
+impl ExtendedProofOfMod {
+    fn gadget<CS: RandomizableConstraintSystem>(
+        cs: &mut CS,
+        a: &Vec<Variable>,
+        a_val: &Vec<Option<BigUint>>,
+        a_mod: &Vec<Variable>,
+        a_mod_val: &Vec<Option<BigUint>>,
+        vi: &Vec<Variable>,
+        vi_val: &Vec<Option<BigUint>>,
+        vi_mod: &Vec<Variable>,
+        vi_mod_val: &Vec<Option<BigUint>>,
+        p: &BigUint,
+        p0: &BigUint,
+        v: Variable,
+    ) -> Result<(), R1CSError> {
+        let t = p0 % p;
+        for i in 0..a.len() {
+            // println!("Applying Proof of Mod to i index {:?}", i);
+            let k_val = if i < a_val.len() {Option::Some(a_val[i].as_ref().unwrap() / p)} else {None};
+            let a_mod_val_i = if i < a_mod_val.len() {Option::Some(a_mod_val[i].as_ref().unwrap().clone())} else {None};
+            let a_val_i = if i < a_val.len() {Option::Some(a_val[i].as_ref().unwrap().clone())} else {None};
+            // println!("p:{:?}, p0:{:?}, t: {:?}, v:{:?}", p, p0, &t, &a_mod_val_i);
+            ProofOfMod::gadget(cs, a_mod[i].clone(), a_mod_val_i, a[i].clone(), a_val_i, p.clone(), p0.clone(), k_val)?;
+        }
+        
+        for i in 0..(vi.len() - 1) {
+            let k_val = if i < vi_val.len() {Option::Some(vi_val[i].as_ref().unwrap() / p)} else {None};
+            let vi_mod_val_i = if i < vi_mod_val.len() {Option::Some(vi_mod_val[i].as_ref().unwrap().clone())} else {None};
+            let vi_val_i = if i < vi_val.len() {Option::Some(vi_val[i].as_ref().unwrap().clone())} else {None};
+            // TODO: this constraint causes verification error for reasons yet unknown
+            cs.constrain(a_mod[i] + big_int_to_scalar(t.clone()) * vi_mod[i + 1] - vi[i]);
+            
+            // println!("p:{:?}, p0:{:?}, t: {:?}, v:{:?}", p, p0, &t, &vi_mod_val_i);
+            println!("mod:{:?}, val:{:?}, p:{:?}, k:{:?}", &vi_mod_val_i, &vi_val_i, p, &k_val);
+            // TODO: this gadget causes verification error for reasons yet unknown
+            ProofOfMod::gadget(cs, vi_mod[i].clone(), vi_mod_val_i, vi[i].clone(), vi_val_i, p.clone(), p0.clone(), k_val)?;
+        }
+        cs.constrain(v - vi_mod[0].clone());
+
+        Ok(())
+    }
+
+    pub fn prove<'a, 'b>(
+        pc_gens: &'b PedersenGens,
+        bp_gens: &'b BulletproofGens,
+        transcript: &'a mut Transcript,
+        v: BigUint,
+        a_vals: &Vec<BigUint>,
+        p: BigUint,
+        p0: BigUint,
+    ) -> Result<(ExtendedProofOfMod, CompressedRistretto, Vec<CompressedRistretto>, Vec<CompressedRistretto>, Vec<CompressedRistretto>, Vec<CompressedRistretto>), R1CSError> {
+        transcript.append_message(b"dom-sep", b"ExtendedProofOfMod");
+
+        let mut prover = Prover::new(&pc_gens, transcript);
+
+        // // Should probably accept these as inputs, but for now generate as needed
+        let mut blinding_rng = rand::thread_rng();
+
+        let (v_com, v_var)
+            = prover.commit(Scalar::from(big_int_to_scalar(v.clone())), Scalar::random(&mut blinding_rng));
+        
+        let mut a = vec![];
+        let mut a_val = vec![];
+        let mut a_com = vec![];
+        let mut a_mod = vec![];
+        let mut a_mod_com = vec![];
+        let mut a_mod_val = vec![];
+        let mut vi = vec![];
+        let mut vi_val = vec![];
+        let mut vi_com = vec![];
+        let mut vi_mod = vec![];
+        let mut vi_mod_com = vec![];
+        let mut vi_mod_val = vec![];
+
+        for i in a_vals.iter() {
+            a_val.push(Option::Some((*i).clone()));
+            a_mod_val.push(Option::Some(i % &p));
+            let (com, var) = prover.commit(big_int_to_scalar((*i).clone()), Scalar::random(&mut blinding_rng));
+            a.push(var);
+            a_com.push(com);
+            let (com, var) = prover.commit(big_int_to_scalar(i % &p), Scalar::random(&mut blinding_rng));
+            a_mod.push(var);
+            a_mod_com.push(com);
+        }
+
+        vi_mod_val.insert(0, a_mod_val[a_val.len() - 1].clone());
+        vi_val.insert(0, a_mod_val[a_val.len() - 1].clone());
+        let (com, var) = prover.commit(big_int_to_scalar(vi_val[0].clone().unwrap()), Scalar::random(&mut blinding_rng));
+        vi.push(var);
+        vi_com.push(com);
+        let (com, var) = prover.commit(big_int_to_scalar(vi_mod_val[0].clone().unwrap()), Scalar::random(&mut blinding_rng));
+        vi_mod.push(var);
+        vi_mod_com.push(com);
+        
+        for i in 0..(a.len() - 1) {
+            let v_i = a_mod_val[a.len() - 2 - i].clone().unwrap() + vi_mod_val[0].clone().unwrap() * (&p0 % &p);
+            let v_i_mod = &v_i % &p;
+            vi_val.insert(0, Option::Some(v_i.clone()));
+            vi_mod_val.insert(0, Option::Some(v_i_mod.clone()));
+            let (com, var) = prover.commit(big_int_to_scalar(v_i.clone()), Scalar::random(&mut blinding_rng));
+            vi.push(var);
+            vi_com.push(com);
+            let (com, var) = prover.commit(big_int_to_scalar(v_i_mod.clone()), Scalar::random(&mut blinding_rng));
+            vi_mod.push(var);
+            vi_mod_com.push(com);
+        }
+        println!("vi mod: {:?}", &vi_mod_val);
+        println!("vi: {:?}", &vi_val);
+
+        ExtendedProofOfMod::gadget(&mut prover, &a, &a_val, &a_mod, &a_mod_val, &vi, &vi_val, &vi_mod, &vi_mod_val, &p, &p0, v_var)?;
+
+        let proof = prover.prove(&bp_gens)?;
+
+        Ok((ExtendedProofOfMod(proof), v_com, a_com, a_mod_com, vi_com, vi_mod_com))
+    }
+
+    pub fn verify<'a, 'b>(
+        &self,
+        pc_gens: &'b PedersenGens,
+        bp_gens: &'b BulletproofGens,
+        transcript: &'a mut Transcript,
+        v_com: CompressedRistretto,
+        a_com: &Vec<CompressedRistretto>,
+        a_mod_com: &Vec<CompressedRistretto>,
+        vi_com: &Vec<CompressedRistretto>,
+        vi_mod_com: &Vec<CompressedRistretto>,
+        p: BigUint,
+        p0: BigUint,
+    ) -> Result<(), R1CSError> {
+        transcript.append_message(b"dom-sep", b"ExtendedProofOfMod");
+
+        let mut verifier = Verifier::new(transcript);
+
+        let v_var = verifier.commit(v_com);
+        
+        let mut a = vec![];
+        let mut a_mod = vec![];
+
+        let mut vi = vec![];
+        let mut vi_mod = vec![];
+
+        for i in 0..a_com.len() {
+            let a_var = verifier.commit(a_com[i].clone());
+            a.push(a_var);
+            let a_mod_var = verifier.commit(a_mod_com[i].clone());
+            a_mod.push(a_mod_var);
+        }
+
+        for i in 0..vi_com.len() {
+            let vi_var = verifier.commit(vi_com[i].clone());
+            vi.push(vi_var);
+            let vi_mod_var = verifier.commit(vi_mod_com[i].clone());
+            vi_mod.push(vi_mod_var);
+        }
+
+        ExtendedProofOfMod::gadget(&mut verifier, &a, &vec![], &a_mod, &vec![], &vi, &vec![], &vi_mod, &vec![], &p, &p0, v_var)?;
+
+        verifier.verify(&self.0, pc_gens, bp_gens)
+    }
+}
+
 fn main() {
     println!("Hello, world!");
     // let bint = BigUint::from_bytes_le(&[6, 1, 4, 5, 6, 7, 8, 2]);
@@ -359,6 +523,28 @@ fn main() {
 
     if let Err(e) = proof.verify(
         &pc_gens, &bp_gens, &mut verifier_transcript, v_com.clone(), s_com.clone(), p.clone(), p0.clone()) {
+        println!("Failed to verify proof: {:?}", e)
+    }
+    else {
+        println!("Proof verified!");
+    }
+
+    let v = BigUint::from(2u64);
+    let p = BigUint::from(113u64);
+    let p0 = BigUint::from(11939u64);
+    let a_vals = vec![BigUint::from(2u64), BigUint::from(2u64), BigUint::from(2u64)];
+    let pc_gens = PedersenGens::default();
+    let bp_gens = BulletproofGens::new(
+        (5 * (129usize)).next_power_of_two(),
+        1);
+    let (xproof, v_com, a_com, a_mod_com, vi_com, vi_mod_com) = {
+        let mut prover_transcript = Transcript::new(b"ExtendedProofOfModExample");
+        ExtendedProofOfMod::prove(&pc_gens, &bp_gens, &mut prover_transcript, v.clone(), &a_vals, p.clone(), p0.clone()).unwrap()
+    };
+    println!("Extended proof created.");
+    verifier_transcript = Transcript::new(b"ExtendedProofOfModExample");
+    if let Err(e) = xproof.verify(
+        &pc_gens, &bp_gens, &mut verifier_transcript, v_com.clone(), &a_com, &a_mod_com, &vi_com, &vi_mod_com, p.clone(), p0.clone()) {
         println!("Failed to verify proof: {:?}", e)
     }
     else {
