@@ -522,13 +522,21 @@ fn main() {
         println!("Proof verified!");
     }
 
-    let v = BigUint::from(28u64);
-    let p = BigUint::from(113u64);
-    let p0 = BigUint::from(11939u64);
-    let a_vals = vec![BigUint::from(2u64), BigUint::from(2u64), BigUint::from(2u64)];
+    let p = BigUint::from_bytes_le(&[3, 1, 4, 5, 6, 7, 8, 3]);
+    let p0 = BigUint::from_bytes_le(&[3, 1, 4, 31, 1, 4, 3, 5, 61, 79, 8, 1, 3, 1, 13, 7, 61, 113]);
+    let mut s = BigUint::from_bytes_le(&[3, 1, 4, 5, 6, 7, 121, 3, 4, 54, 83, 2, 3, 7, 11, 17, 9, 1, 11, 1, 13, 7, 111, 97, 43]);
+    let v = &s % &p;
+    let mut a_vals = vec![];
+    a_vals.push(&s % &p0);
+    s = &s / &p0;
+    while s > BigUint::ZERO {
+        a_vals.push(&s % &p0);
+        s = &s / &p0;
+    }
+
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
-        (5 * (129usize)).next_power_of_two(),
+        (5 * (256usize)).next_power_of_two(),
         1);
     let (xproof, v_com, a_com, a_mod_com, vi_com, vi_mod_com) = {
         let mut prover_transcript = Transcript::new(b"ExtendedProofOfModExample");
