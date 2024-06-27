@@ -351,11 +351,10 @@ impl ExtendedProofOfMod {
     ) -> Result<(), R1CSError> {
         let t = p0 % p;
         for i in 0..a.len() {
-            // println!("Applying Proof of Mod to i index {:?}", i);
             let k_val = if i < a_val.len() {Option::Some(a_val[i].as_ref().unwrap() / p)} else {None};
             let a_mod_val_i = if i < a_mod_val.len() {Option::Some(a_mod_val[i].as_ref().unwrap().clone())} else {None};
             let a_val_i = if i < a_val.len() {Option::Some(a_val[i].as_ref().unwrap().clone())} else {None};
-            // println!("p:{:?}, p0:{:?}, t: {:?}, v:{:?}", p, p0, &t, &a_mod_val_i);
+            
             ProofOfMod::gadget(cs, a_mod[i].clone(), a_mod_val_i, a[i].clone(), a_val_i, p.clone(), p0.clone(), k_val)?;
         }
         
@@ -363,12 +362,9 @@ impl ExtendedProofOfMod {
             let k_val = if i < vi_val.len() {Option::Some(vi_val[i].as_ref().unwrap() / p)} else {None};
             let vi_mod_val_i = if i < vi_mod_val.len() {Option::Some(vi_mod_val[i].as_ref().unwrap().clone())} else {None};
             let vi_val_i = if i < vi_val.len() {Option::Some(vi_val[i].as_ref().unwrap().clone())} else {None};
-            // TODO: this constraint causes verification error for reasons yet unknown
             cs.constrain(a_mod[i] + big_int_to_scalar(t.clone()) * vi_mod[i + 1] - vi[i]);
             
-            // println!("p:{:?}, p0:{:?}, t: {:?}, v:{:?}", p, p0, &t, &vi_mod_val_i);
-            println!("mod:{:?}, val:{:?}, p:{:?}, k:{:?}", &vi_mod_val_i, &vi_val_i, p, &k_val);
-            // TODO: this gadget causes verification error for reasons yet unknown
+            println!("mod:{:?}, val:{:?}, p:{:?}, k:{:?}, mod var: {:?}, var:{:?}", &vi_mod_val_i, &vi_val_i, p, &k_val, vi_mod, vi);
             ProofOfMod::gadget(cs, vi_mod[i].clone(), vi_mod_val_i, vi[i].clone(), vi_val_i, p.clone(), p0.clone(), k_val)?;
         }
         cs.constrain(v - vi_mod[0].clone());
@@ -421,22 +417,19 @@ impl ExtendedProofOfMod {
 
         vi_mod_val.insert(0, a_mod_val[a_val.len() - 1].clone());
         vi_val.insert(0, a_mod_val[a_val.len() - 1].clone());
-        let (com, var) = prover.commit(big_int_to_scalar(vi_val[0].clone().unwrap()), Scalar::random(&mut blinding_rng));
-        vi.push(var);
-        vi_com.push(com);
-        let (com, var) = prover.commit(big_int_to_scalar(vi_mod_val[0].clone().unwrap()), Scalar::random(&mut blinding_rng));
-        vi_mod.push(var);
-        vi_mod_com.push(com);
         
         for i in 0..(a.len() - 1) {
             let v_i = a_mod_val[a.len() - 2 - i].clone().unwrap() + vi_mod_val[0].clone().unwrap() * (&p0 % &p);
             let v_i_mod = &v_i % &p;
             vi_val.insert(0, Option::Some(v_i.clone()));
             vi_mod_val.insert(0, Option::Some(v_i_mod.clone()));
-            let (com, var) = prover.commit(big_int_to_scalar(v_i.clone()), Scalar::random(&mut blinding_rng));
+        }
+
+        for i in 0..vi_val.len(){
+            let (com, var) = prover.commit(big_int_to_scalar(vi_val[i].clone().unwrap()), Scalar::random(&mut blinding_rng));
             vi.push(var);
             vi_com.push(com);
-            let (com, var) = prover.commit(big_int_to_scalar(v_i_mod.clone()), Scalar::random(&mut blinding_rng));
+            let (com, var) = prover.commit(big_int_to_scalar(vi_mod_val[i].clone().unwrap()), Scalar::random(&mut blinding_rng));
             vi_mod.push(var);
             vi_mod_com.push(com);
         }
@@ -529,7 +522,7 @@ fn main() {
         println!("Proof verified!");
     }
 
-    let v = BigUint::from(2u64);
+    let v = BigUint::from(28u64);
     let p = BigUint::from(113u64);
     let p0 = BigUint::from(11939u64);
     let a_vals = vec![BigUint::from(2u64), BigUint::from(2u64), BigUint::from(2u64)];
@@ -548,6 +541,6 @@ fn main() {
         println!("Failed to verify proof: {:?}", e)
     }
     else {
-        println!("Proof verified!");
+        println!("Extended Proof verified!");
     }
 }
