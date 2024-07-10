@@ -7,7 +7,7 @@ use merlin::Transcript;
 use num_bigint::BigUint;
 use std::convert::TryInto;
 
-pub fn big_int_to_scalar (bint: BigUint) -> Scalar {
+pub fn big_int_to_scalar(bint: BigUint) -> Scalar {
     let mut bits = bint.to_bytes_le();
     assert!(bits.len() <= 32);
     while bits.len() < 32 {
@@ -16,11 +16,11 @@ pub fn big_int_to_scalar (bint: BigUint) -> Scalar {
     Scalar::from_bytes_mod_order(bits.try_into().unwrap())
 }
 
-pub fn scalar_to_big_int (scalar: Scalar) -> BigUint {
+pub fn scalar_to_big_int(scalar: Scalar) -> BigUint {
     BigUint::from_bytes_le(scalar.as_bytes())
 }
 
-pub fn compute_a (s_ref: &BigUint, p0_ref: &BigUint) -> Vec<BigUint> {
+pub fn compute_a(s_ref: &BigUint, p0_ref: &BigUint) -> Vec<BigUint> {
     let mut a_vals = vec![];
     let mut s = s_ref.clone();
     let p0 = p0_ref.clone();
@@ -33,7 +33,7 @@ pub fn compute_a (s_ref: &BigUint, p0_ref: &BigUint) -> Vec<BigUint> {
     a_vals
 }
 
-pub fn sample_a (s_ref: &BigUint, p0_ref: &BigUint, m_size: usize) -> (BigUint, Vec<BigUint>) {
+pub fn sample_a(s_ref: &BigUint, p0_ref: &BigUint, m_size: usize) -> (BigUint, Vec<BigUint>) {
     let mut a_vals = vec![s_ref.clone()];
     let mut sum = s_ref.clone();
     let mut power_p0 = p0_ref.clone();
@@ -228,9 +228,9 @@ impl DisjunctionOfRanges {
         let mut blinding_rng = rand::thread_rng();
 
         let (v1_com, v1_var)
-            = prover.commit(Scalar::from(big_int_to_scalar(v1.clone())), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(v1.clone()), Scalar::random(&mut blinding_rng));
         let (v2_com, v2_var)
-            = prover.commit(Scalar::from(big_int_to_scalar(v2.clone())), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(v2.clone()), Scalar::random(&mut blinding_rng));
 
         assert!(add_range_disjunction(&mut prover, v1_var.into(), v2_var.into(), Some(v1), Some(v2), n1, n2).is_ok());
 
@@ -286,7 +286,7 @@ impl ProofOfMod {
         let (q, t) = (&p0 / &p, &p0 % &p);
         let n1: usize = (p.bits()).try_into().unwrap();
         let n2: usize = (q.bits()).try_into().unwrap();
-        let k = cs.allocate(k_val.as_ref().map(|x| Scalar::from(big_int_to_scalar(x.clone())))).unwrap();
+        let k = cs.allocate(k_val.as_ref().map(|x| big_int_to_scalar(x.clone()))).unwrap();
 
         // Fundamental constraint for proof of mod
         cs.constrain(v + k * big_int_to_scalar(p.clone()) - s);
@@ -294,7 +294,7 @@ impl ProofOfMod {
         add_range_constraints(cs, v.into(), v_val.clone(), n1)?;
         add_range_constraints(cs, k.into(), k_val.clone(), n2)?;
         add_range_constraints(cs, big_int_to_scalar(&p - &big_one) - v, v_val.as_ref().map(|x| &p - x - &big_one), n1)?;
-        add_range_constraints(cs, Scalar::from(big_int_to_scalar(q.clone())) - k, k_val.as_ref().map(|x| &q - x), n2)?;
+        add_range_constraints(cs, big_int_to_scalar(q.clone()) - k, k_val.as_ref().map(|x| &q - x), n2)?;
         add_range_disjunction(cs,
             big_int_to_scalar(&t - &big_one) - v,
             big_int_to_scalar(&q - &big_one) - k,
@@ -324,9 +324,9 @@ impl ProofOfMod {
         let mut blinding_rng = rand::thread_rng();
 
         let (v_com, v_var)
-            = prover.commit(Scalar::from(big_int_to_scalar(v.clone())), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(v.clone()), Scalar::random(&mut blinding_rng));
         let (s_com, s_var)
-            = prover.commit(Scalar::from(big_int_to_scalar(s.clone())), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(s.clone()), Scalar::random(&mut blinding_rng));
 
         ProofOfMod::gadget(&mut prover, v_var, Some(v), s_var, Some(s), p, p0, Some(k))?;
 
@@ -390,7 +390,6 @@ impl ExtendedProofOfMod {
             let vi_val_i = if i < vi_val.len() {Option::Some(vi_val[i].as_ref().unwrap().clone())} else {None};
             cs.constrain(a_mod[i] + big_int_to_scalar(t.clone()) * vi_mod[i + 1] - vi[i]);
             
-            println!("mod:{:?}, val:{:?}, p:{:?}, k:{:?}, mod var: {:?}, var:{:?}", &vi_mod_val_i, &vi_val_i, p, &k_val, vi_mod, vi);
             ProofOfMod::gadget(cs, vi_mod[i].clone(), vi_mod_val_i, vi[i].clone(), vi_val_i, p.clone(), p0.clone(), k_val)?;
         }
         cs.constrain(v - vi_mod[0].clone());
@@ -415,7 +414,7 @@ impl ExtendedProofOfMod {
         let mut blinding_rng = rand::thread_rng();
 
         let (v_com, v_var)
-            = prover.commit(Scalar::from(big_int_to_scalar(v.clone())), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(v.clone()), Scalar::random(&mut blinding_rng));
         
         let mut a = vec![];
         let mut a_val = vec![];
@@ -459,8 +458,6 @@ impl ExtendedProofOfMod {
             vi_mod.push(var);
             vi_mod_com.push(com);
         }
-        println!("vi mod: {:?}", &vi_mod_val);
-        println!("vi: {:?}", &vi_val);
 
         ExtendedProofOfMod::gadget(&mut prover, &a, &a_val, &a_mod, &a_mod_val, &vi, &vi_val, &vi_mod, &vi_mod_val, &p, &p0, v_var)?;
 
@@ -531,7 +528,7 @@ impl ExtendedProofOfMod {
         let mut blinding_rng = rand::thread_rng();
 
         let (s_com, s_var)
-            = prover.commit(Scalar::from(big_int_to_scalar(s.clone())), Scalar::random(&mut blinding_rng));
+            = prover.commit(big_int_to_scalar(s.clone()), Scalar::random(&mut blinding_rng));
         
         let mut combined_a_mod_com = vec![];
         let mut combined_vi_com = vec![];
@@ -541,7 +538,7 @@ impl ExtendedProofOfMod {
         let mut a_val = vec![];
         let mut a_com = vec![];
 
-        let (s, a_vals) = sample_a(&s, &p0, 11);
+        let (s, a_vals) = sample_a(&s, &p0, 1);
         for i in a_vals.iter() {
             a_val.push(Option::Some((*i).clone()));
             let (com, var) = prover.commit(big_int_to_scalar((*i).clone()), Scalar::random(&mut blinding_rng));
@@ -553,7 +550,7 @@ impl ExtendedProofOfMod {
         for p in weights.iter() {
             let v = &s % p;
             let (com, v_var)
-                = prover.commit(Scalar::from(big_int_to_scalar(v.clone())), Scalar::random(&mut blinding_rng));
+                = prover.commit(big_int_to_scalar(v.clone()), Scalar::random(&mut blinding_rng));
             v_com.push(com);
 
             let mut a_mod = vec![];
@@ -591,8 +588,6 @@ impl ExtendedProofOfMod {
                 vi_mod.push(var);
                 vi_mod_com.push(com);
             }
-            println!("vi mod: {:?}", &vi_mod_val);
-            println!("vi: {:?}", &vi_val);
 
             ExtendedProofOfMod::gadget(&mut prover, &a, &a_val, &a_mod, &a_mod_val, &vi, &vi_val, &vi_mod, &vi_mod_val, p, &p0, v_var)?;
             
@@ -623,7 +618,6 @@ impl ExtendedProofOfMod {
         transcript.append_message(b"dom-sep", b"AggregatedExtendedProofOfMod");
 
         let mut verifier = Verifier::new(transcript);
-        println!("{:?}, {:?}, {:?}, {:?}", &a_com, &a_mod_com, &vi_com, &vi_mod_com);
 
         let s_var = verifier.commit(s_com);
 
@@ -653,7 +647,7 @@ impl ExtendedProofOfMod {
                 let vi_mod_var = verifier.commit(vi_mod_com[p_index][i].clone());
                 vi_mod.push(vi_mod_var);
             }
-            println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}", &a, &a_mod, &vi, &vi_mod, &weights[p_index], &p0, &v_var);
+
             ExtendedProofOfMod::gadget(&mut verifier, &a, &vec![], &a_mod, &vec![], &vi, &vec![], &vi_mod, &vec![], &weights[p_index], &p0, v_var)?;
         }
 
