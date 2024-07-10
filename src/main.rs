@@ -36,17 +36,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("Extended proof created for secret sharing.");
 
-    let filename = "export_share_proof.json";
+    let proof_filename = "export_share_proof.json";
+    let commitment_filename = "export_commitment.json";
 
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(true)
         .write(true)
         .read(true)
-        .open(filename)?;
+        .open(proof_filename)?;
 
     serde_json::to_writer(&mut file, &xproof.to_bytes())?;
-    let xproof_read_bytes: Vec<u8> = serde_json::from_reader(OpenOptions::new().read(true).open(filename)?)?;
+
+    file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .read(true)
+        .open(commitment_filename)?;
+
+    serde_json::to_writer(&mut file, &s_com)?;
+    serde_json::to_writer(&mut file, &v_com)?;
+    serde_json::to_writer(&mut file, &a_com)?;
+    serde_json::to_writer(&mut file, &a_mod_com)?;
+    serde_json::to_writer(&mut file, &vi_com)?;
+    serde_json::to_writer(&mut file, &vi_mod_com)?;
+
+    let xproof_read_bytes: Vec<u8> = serde_json::from_reader(OpenOptions::new().read(true).open(proof_filename)?)?;
     let xproof_from_file: ExtendedProofOfMod = ExtendedProofOfMod::from_bytes(&xproof_read_bytes);
     assert!(&xproof.to_bytes() == &xproof_from_file.to_bytes());
     println!("Read extended proof for VSS from file.");
