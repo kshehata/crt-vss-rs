@@ -84,6 +84,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p = vec![BigUint::from_bytes_le(&[3, 162, 64, 175, 36, 7, 68, 31, 123, 187, 78, 245, 217, 203, 19]),
                                BigUint::from_bytes_le(&[3, 162, 64, 175, 31, 123, 187, 3, 153, 197, 203, 19]),
                                BigUint::from(23498571298749812u64),
+                               BigUint::from_bytes_le(&[3, 36, 7, 68, 31, 123, 187, 78, 245, 21, 216, 203, 19]),
+                               BigUint::from_bytes_le(&[3, 162, 64, 175, 36, 7, 68, 31, 123, 187, 78, 245, 217, 203, 19]),
+                               BigUint::from_bytes_le(&[3, 162, 64, 175, 31, 123, 187, 3, 153, 197, 203, 19]),
+                               BigUint::from(23498571298749812u64),
                                BigUint::from_bytes_le(&[3, 36, 7, 68, 31, 123, 187, 78, 245, 21, 216, 203, 19])];
     
     let s = BigUint::from_bytes_le(&[209, 91, 84, 175, 236, 117, 121, 113, 47, 98, 118, 129, 54, 83, 102, 3, 97, 11, 17, 9, 
@@ -91,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
-        (256 * (256usize)).next_power_of_two(),
+        (512 * (256usize)).next_power_of_two(),
         1);
     let (xproof, s_com, v_com, a_com, a_mod_com, vi_com, vi_mod_com) = {
         let mut prover_transcript = Transcript::new(b"ExtendedProofOfModVSSExample");

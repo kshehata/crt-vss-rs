@@ -520,7 +520,7 @@ impl ExtendedProofOfMod {
         s: BigUint,
         weights: &Vec<BigUint>,
         p0: BigUint,
-    ) -> Result<(ExtendedProofOfMod, CompressedRistretto, Vec<CompressedRistretto>, Vec<Vec<CompressedRistretto>>, Vec<Vec<CompressedRistretto>>, 
+    ) -> Result<(ExtendedProofOfMod, CompressedRistretto, Vec<CompressedRistretto>, Vec<CompressedRistretto>, Vec<Vec<CompressedRistretto>>, 
         Vec<Vec<CompressedRistretto>>, Vec<Vec<CompressedRistretto>>), R1CSError> {
 
         transcript.append_message(b"dom-sep", b"AggregatedExtendedProofOfMod");        
@@ -533,22 +533,29 @@ impl ExtendedProofOfMod {
         let (s_com, s_var)
             = prover.commit(Scalar::from(big_int_to_scalar(s.clone())), Scalar::random(&mut blinding_rng));
         
-        let mut combined_a_com = vec![];
         let mut combined_a_mod_com = vec![];
         let mut combined_vi_com = vec![];
         let mut combined_vi_mod_com = vec![];
         let mut v_com = vec![];
+        let mut a = vec![];
+        let mut a_val = vec![];
+        let mut a_com = vec![];
 
         let (s, a_vals) = sample_a(&s, &p0, 11);
+        for i in a_vals.iter() {
+            a_val.push(Option::Some((*i).clone()));
+            let (com, var) = prover.commit(big_int_to_scalar((*i).clone()), Scalar::random(&mut blinding_rng));
+            a.push(var);
+            a_com.push(com);
+        }
+        prover.constrain(s_var - a[0]);
+
         for p in weights.iter() {
             let v = &s % p;
             let (com, v_var)
                 = prover.commit(Scalar::from(big_int_to_scalar(v.clone())), Scalar::random(&mut blinding_rng));
             v_com.push(com);
 
-            let mut a = vec![];
-            let mut a_val = vec![];
-            let mut a_com = vec![];
             let mut a_mod = vec![];
             let mut a_mod_com = vec![];
             let mut a_mod_val = vec![];
@@ -560,16 +567,11 @@ impl ExtendedProofOfMod {
             let mut vi_mod_val = vec![];
 
             for i in a_vals.iter() {
-                a_val.push(Option::Some((*i).clone()));
                 a_mod_val.push(Option::Some(i % p));
-                let (com, var) = prover.commit(big_int_to_scalar((*i).clone()), Scalar::random(&mut blinding_rng));
-                a.push(var);
-                a_com.push(com);
                 let (com, var) = prover.commit(big_int_to_scalar(i % p), Scalar::random(&mut blinding_rng));
                 a_mod.push(var);
                 a_mod_com.push(com);
             }
-            prover.constrain(s_var - a[0]);
 
             vi_mod_val.insert(0, a_mod_val[a_val.len() - 1].clone());
             vi_val.insert(0, a_mod_val[a_val.len() - 1].clone());
@@ -594,7 +596,6 @@ impl ExtendedProofOfMod {
 
             ExtendedProofOfMod::gadget(&mut prover, &a, &a_val, &a_mod, &a_mod_val, &vi, &vi_val, &vi_mod, &vi_mod_val, p, &p0, v_var)?;
             
-            combined_a_com.push(a_com.clone());
             combined_a_mod_com.push(a_mod_com.clone());
             combined_vi_com.push(vi_com.clone());
             combined_vi_mod_com.push(vi_mod_com.clone());
@@ -602,7 +603,7 @@ impl ExtendedProofOfMod {
 
         let proof = prover.prove(&bp_gens)?;
 
-        Ok((ExtendedProofOfMod(proof), s_com, v_com, combined_a_com, combined_a_mod_com, combined_vi_com, combined_vi_mod_com))
+        Ok((ExtendedProofOfMod(proof), s_com, v_com, a_com, combined_a_mod_com, combined_vi_com, combined_vi_mod_com))
     }
 
     pub fn verify_share<'a, 'b>(
@@ -612,7 +613,7 @@ impl ExtendedProofOfMod {
         transcript: &'a mut Transcript,
         s_com: CompressedRistretto,
         v_com: &Vec<CompressedRistretto>,
-        a_com: &Vec<Vec<CompressedRistretto>>,
+        a_com: &Vec<CompressedRistretto>,
         a_mod_com: &Vec<Vec<CompressedRistretto>>,
         vi_com: &Vec<Vec<CompressedRistretto>>,
         vi_mod_com: &Vec<Vec<CompressedRistretto>>,
@@ -626,22 +627,25 @@ impl ExtendedProofOfMod {
 
         let s_var = verifier.commit(s_com);
 
+        let mut a = vec![];
+        for i in 0..a_com.len() {
+            let a_var = verifier.commit(a_com[i].clone());
+            a.push(a_var);
+        }
+        verifier.constrain(s_var - a[0]);
+
         for p_index in 0..weights.len() {
             let v_var = verifier.commit(v_com[p_index]);
             
-            let mut a = vec![];
             let mut a_mod = vec![];
 
             let mut vi = vec![];
             let mut vi_mod = vec![];
 
-            for i in 0..a_com[p_index].len() {
-                let a_var = verifier.commit(a_com[p_index][i].clone());
-                a.push(a_var);
+            for i in 0..a_mod_com[p_index].len() {
                 let a_mod_var = verifier.commit(a_mod_com[p_index][i].clone());
                 a_mod.push(a_mod_var);
             }
-            verifier.constrain(s_var - a[0]);
 
             for i in 0..vi_com[p_index].len() {
                 let vi_var = verifier.commit(vi_com[p_index][i].clone());
