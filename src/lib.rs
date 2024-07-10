@@ -272,7 +272,7 @@ impl ProofOfMod {
         add_range_disjunction(cs,
             big_int_to_scalar(&t - &big_one) - v,
             big_int_to_scalar(&q - &big_one) - k,
-            v_val.as_ref().map(|x| &t - &big_one - x),
+            v_val.as_ref().map(|x| &p0 + &t - &big_one - x),
             k_val.as_ref().map(|x| &q - &big_one - x),
             n1, n2)?;
 

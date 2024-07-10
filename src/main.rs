@@ -6,20 +6,20 @@ use num_bigint::BigUint;
 use std::fs::OpenOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Hello, world!");
+    let p0: BigUint = (BigUint::from(1u64) << 252) + BigUint::from(27742317777372353535851937790883648493u128);
     // let bint = BigUint::from_bytes_le(&[6, 1, 4, 5, 6, 7, 8, 2]);
     // let sca = big_int_to_scalar(bint.clone());
     // let bint_ret = scalar_to_big_int(sca.clone());
     // let sca_from_num = Scalar::from(146374710324887814u64);
     // println!("Finished conversion example. Big int is: {:?}, big int converted back is: {:?}, scalar is: {:?}, scalar from num is: {:?}", bint, bint_ret, sca, sca_from_num);
-    let (p, p0) = (BigUint::from_bytes_le(&[6, 1, 4, 5, 6, 7, 8, 2]), BigUint::from_bytes_le(&[6, 1, 4, 3, 1, 4, 3, 5, 6, 7, 8, 2]));
+    let p = BigUint::from_bytes_le(&[6, 1, 4, 5, 6, 7, 8, 2]);
     let s = BigUint::from_bytes_le(&[3, 1, 4, 5, 6, 7, 1, 3, 4, 5, 8, 2]);
     let (v, k) = (&s % &p, &s / &p);
     // let (v, k) = (5u64, 28u64);
 
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
-        (2 * (129usize)).next_power_of_two(),
+        (5 * (256usize)).next_power_of_two(),
         1);
     
     println!("Creating a proof of mod for {} (in {}) = {} + {} * {}", &s, &p0, &v, &k, &p);
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let p = BigUint::from_bytes_le(&[3, 1, 4, 5, 6, 7, 8, 3]);
-    let p0 = BigUint::from_bytes_le(&[3, 1, 4, 31, 1, 4, 3, 5, 61, 79, 8, 1, 3, 1, 13, 7, 61, 113]);
+    
     let mut s = BigUint::from_bytes_le(&[3, 1, 4, 5, 6, 7, 121, 3, 4, 54, 83, 2, 3, 7, 11, 17, 9, 1, 11, 1, 13, 7, 111, 97, 43]);
     let v = &s % &p;
     let mut a_vals = vec![];
