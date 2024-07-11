@@ -66,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let s = BigUint::from_bytes_le(&[209, 91, 84, 175, 236, 117, 121, 113, 47, 98, 118, 129, 54, 83, 102, 3, 97, 
                                                     121, 11, 189, 53, 191]);
+    let m_size = 1usize;
 
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
@@ -74,9 +75,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     use std::time::Instant;
     let prover_start = Instant::now();
-    let (xproof, s_com, v_com, a_com, a_mod_com, vi_com, vi_mod_com) = {
+    let (xproof, s_com, v_com) = {
         let mut prover_transcript = Transcript::new(b"ExtendedProofOfModVSSExample");
-        ExtendedProofOfMod::share(&pc_gens, &bp_gens, &mut prover_transcript, s.clone(), &p, p0.clone()).unwrap()
+        ExtendedProofOfMod::share(&pc_gens, &bp_gens, &mut prover_transcript, s.clone(), m_size, &p, p0.clone()).unwrap()
     };
     println!("Extended proof created for secret sharing in {:.2?}", prover_start.elapsed());
 
@@ -101,10 +102,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     serde_json::to_writer(&mut file, &s_com)?;
     serde_json::to_writer(&mut file, &v_com)?;
-    serde_json::to_writer(&mut file, &a_com)?;
-    serde_json::to_writer(&mut file, &a_mod_com)?;
-    serde_json::to_writer(&mut file, &vi_com)?;
-    serde_json::to_writer(&mut file, &vi_mod_com)?;
 
     let xproof_read_bytes: Vec<u8> = serde_json::from_reader(OpenOptions::new().read(true).open(proof_filename)?)?;
     let xproof_from_file: ExtendedProofOfMod = ExtendedProofOfMod::from_bytes(&xproof_read_bytes);
@@ -114,7 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut verifier_transcript = Transcript::new(b"ExtendedProofOfModVSSExample");
     let verify_start = Instant::now();
     if let Err(e) = xproof_from_file.verify_share(
-        &pc_gens, &bp_gens, &mut verifier_transcript, s_com.clone(), &v_com, &a_com, &a_mod_com, &vi_com, &vi_mod_com, &p, p0.clone()) {
+        &pc_gens, &bp_gens, &mut verifier_transcript, s_com.clone(), &v_com, m_size, &p, p0.clone()) {
         println!("Failed to verify proof: {:?}", e)
     }
     else {
