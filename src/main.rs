@@ -30,11 +30,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bp_gens = BulletproofGens::new(
         (512 * (256usize)).next_power_of_two(),
         1);
+
+    use std::time::Instant;
+    let prover_start = Instant::now();
     let (xproof, s_com, v_com, a_com, a_mod_com, vi_com, vi_mod_com) = {
         let mut prover_transcript = Transcript::new(b"ExtendedProofOfModVSSExample");
         ExtendedProofOfMod::share(&pc_gens, &bp_gens, &mut prover_transcript, s.clone(), &p, p0.clone()).unwrap()
     };
-    println!("Extended proof created for secret sharing.");
+    println!("Extended proof created for secret sharing in {:.2?}", prover_start.elapsed());
 
     let proof_filename = "export_share_proof.json";
     let commitment_filename = "export_commitment.json";
@@ -68,6 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Read extended proof for VSS from file.");
 
     let mut verifier_transcript = Transcript::new(b"ExtendedProofOfModVSSExample");
+    let verify_start = Instant::now();
     if let Err(e) = xproof_from_file.verify_share(
         &pc_gens, &bp_gens, &mut verifier_transcript, s_com.clone(), &v_com, &a_com, &a_mod_com, &vi_com, &vi_mod_com, &p, p0.clone()) {
         println!("Failed to verify proof: {:?}", e)
@@ -75,6 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     else {
         println!("VSS Extended proof verified!");
     }
+    println!("Extended proof created for secret sharing in {:.2?}", verify_start.elapsed());
 
     Ok(())
 }
