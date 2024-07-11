@@ -14,22 +14,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The value of p0 is the prime order defined by the bulletproof library.
 
     // Test secret sharing
-    let p = vec![get_prime_for_weight(128),
-                               get_prime_for_weight(16),
-                               get_prime_for_weight(224),
-                               get_prime_for_weight(96),
-                               get_prime_for_weight(32),
-                               get_prime_for_weight(192),
-                               get_prime_for_weight(200),
-                               get_prime_for_weight(136)];
+    let mut p = vec![];
     
-    let s = BigUint::from_bytes_le(&[209, 91, 84, 175, 236, 117, 121, 113, 47, 98, 118, 129, 54, 83, 102, 3, 97, 11, 17, 9, 
-                                                    121, 11, 189, 13, 7, 53, 191]);
+    for _i in 0..4 {
+        p.push(get_prime_for_weight(13 * 8));
+    }
+
+    for _i in 0..17 {
+        p.push(get_prime_for_weight(12 * 8));
+    }
+
+    for _i in 0..6 {
+        p.push(get_prime_for_weight(11 * 8));
+    }
+
+    for _i in 0..8 {
+        p.push(get_prime_for_weight(10 * 8));
+    }
+
+    for _i in 0..3 {
+        p.push(get_prime_for_weight(9 * 8));
+    }
+
+    for _i in 0..1 {
+        p.push(get_prime_for_weight(7 * 8));
+    }
+
+    for _i in 0..1 {
+        p.push(get_prime_for_weight(6 * 8));
+    }
+
+    for _i in 0..3 {
+        p.push(get_prime_for_weight(5 * 8));
+    }
+
+    for _i in 0..4 {
+        p.push(get_prime_for_weight(4 * 8));
+    }
+
+    for _i in 0..8 {
+        p.push(get_prime_for_weight(3 * 8));
+    }
+
+    for _i in 0..5 {
+        p.push(get_prime_for_weight(2 * 8));
+    }
+
+    for _i in 0..52 {
+        p.push(get_prime_for_weight(1 * 8));
+    }
+    
+    let s = BigUint::from_bytes_le(&[209, 91, 84, 175, 236, 117, 121, 113, 47, 98, 118, 129, 54, 83, 102, 3, 97, 
+                                                    121, 11, 189, 53, 191]);
 
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(
-        (512 * (256usize)).next_power_of_two(),
-        1);
+        (128 * (256usize)).next_power_of_two(),
+        112);
 
     use std::time::Instant;
     let prover_start = Instant::now();
