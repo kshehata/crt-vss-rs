@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     else {
         println!("VSS Extended proof verified!");
     }
-    println!("Extended proof created for secret sharing in {:.2?}", verify_start.elapsed());
+    println!("Proof verified in {:.2?}", verify_start.elapsed());
 
     Ok(())
 }
