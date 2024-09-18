@@ -515,6 +515,7 @@ impl ExtendedProofOfMod {
         bp_gens: &'b BulletproofGens,
         transcript: &'a mut Transcript,
         s: BigUint,
+        m_size: usize,
         weights: &Vec<BigUint>,
         p0: BigUint,
     ) -> Result<(ExtendedProofOfMod, CompressedRistretto, Vec<CompressedRistretto>, Vec<CompressedRistretto>, Vec<Vec<CompressedRistretto>>, 
@@ -538,7 +539,7 @@ impl ExtendedProofOfMod {
         let mut a_val = vec![];
         let mut a_com = vec![];
 
-        let (s, a_vals) = sample_a(&s, &p0, 11);
+        let (s, a_vals) = sample_a(&s, &p0, m_size);
         for i in a_vals.iter() {
             a_val.push(Option::Some((*i).clone()));
             let (com, var) = prover.commit(big_int_to_scalar((*i).clone()), Scalar::random(&mut blinding_rng));
